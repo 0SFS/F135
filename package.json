@@ -1,0 +1,40 @@
+{
+  "name": "@0sfs/f135",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Pratt & Whitney F135 engine for 0SFS: JSBSim engine definitions, geometry, exhaust optical data and provenance.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    "./generated/f135EngineData": {
+      "source": "./src/generated/f135EngineData.ts",
+      "default": "./src/generated/f135EngineData.ts"
+    },
+    "./generated/f135ExhaustOpticalData": {
+      "source": "./src/generated/f135ExhaustOpticalData.ts",
+      "default": "./src/generated/f135ExhaustOpticalData.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@babylonjs/core": "8.56.2",
+    "@felipegalind0/jsbsim": "1.2.4-fork.21",
+    "foss-earth": "0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@babylonjs/core": {
+      "optional": true
+    },
+    "@felipegalind0/jsbsim": {
+      "optional": true
+    },
+    "foss-earth": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@0sfs/engines": "0.1.0",
+    "@babylonjs/loaders": "8.56.2",
+    "vitest": "4.1.6"
+  }
+}

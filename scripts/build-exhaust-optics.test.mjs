@@ -1,0 +1,166 @@
+import { readFileSync } from "node:fs";
+import { inflateSync } from "node:zlib";
+import { describe, expect, it } from "vitest";
+import { checkGeneratedExhaustArtifacts, generateExhaustArtifacts } from "./build-exhaust-optics.mjs";
+import { bakeDimensionalGas, bakeGasSpatialField, bakeParticleSpectrum, bakeSpatialEmission, bakeSurfaceEmission, parseObserverCsv, planckRadiance } from "./exhaustOptics/bake.mjs";
+
+import { referenceRadiance, referencePhotometricRgb, referenceParticlePlanckMean, referenceParticleXyz, luminance } from "./exhaustOptics/reference.mjs";
+
+const profile = JSON.parse(readFileSync(new URL("./exhaustOptics/f135-visible-approximation.json", import.meta.url)));
+const legacyProfile = JSON.parse(readFileSync(new URL("../validation/evidence/aircraft/f35b/plume-spatial-2026-10-06/spatial-optics/source-2-f135-visible-approximation.json.txt", import.meta.url)));
+const observer = parseObserverCsv(readFileSync(new URL("./exhaustOptics/data/CIE_xyz_1931_2deg.csv", import.meta.url)));
+
+function decodePng(bytes) {
+  const chunks = [];
+  let width = 0;
+  let height = 0;
+  for (let offset = 8; offset < bytes.length;) {
+    const length = bytes.readUInt32BE(offset);
+    const name = bytes.toString("ascii", offset + 4, offset + 8);
+    const data = bytes.subarray(offset + 8, offset + 8 + length);
+    if (name === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      expect([...data.subarray(8)]).toEqual([8, 6, 0, 0, 0]);
+    }
+    if (name === "IDAT") chunks.push(data);
+    offset += length + 12;
+  }
+  const scanlines = inflateSync(Buffer.concat(chunks));
+  const rgba = new Uint8Array(width * height * 4);
+  expect(scanlines.length).toBe((width * 4 + 1) * height);
+  for (let row = 0; row < height; row++) {
+    expect(scanlines[row * (width * 4 + 1)]).toBe(0);
+    rgba.set(scanlines.subarray(row * (width * 4 + 1) + 1, (row + 1) * (width * 4 + 1)), row * width * 4);
+  }
+  return { width, height, rgba };
+}
+
+describe("dimensional offline exhaust optical bake", () => {
+  it("matches independent non-grey particle spectra and whole-spectrum power without changing metal tables", () => {
+    const parameters = profile.gasEmission.particleSpectrum;
+    for (const alpha of [0, 1, 1.3]) {
+      for (const temperature of [150, 800, 1003.128, 2500, 3200]) {
+        const table = bakeParticleSpectrum({ ...parameters, absorptionAngstromExponent: alpha,
+          absorptionAngstromExponentRange: [0, 1.3] }, [temperature, temperature + 1], 2, observer);
+        const independent = referenceParticleXyz(observer, temperature, alpha);
+        for (let c = 0; c < 3; c++) expect(Math.abs(table.xyz.samples[0][c] / independent[c] - 1)).toBeLessThan(1e-10);
+        expect(luminance(table.rgb.samples[0]) / table.xyz.samples[0][1]).toBeCloseTo(1, 10);
+        expect(table.planckMeanAbsorptionRatio.samples[0] / referenceParticlePlanckMean(temperature, alpha)).toBeCloseTo(1, 8);
+        if (alpha === 0) {
+          expect(table.planckMeanAbsorptionRatio.samples).toEqual([1, 1]);
+          const gray = bakeSurfaceEmission({ sampleCount: 2, temperatureKelvinRange: [temperature, temperature + 1], visibleGrayEmissivity: 1 }, observer);
+          // Legacy tables retain their coarser 1nm integration. At the 150K
+          // endpoint both physical values are negligible, not normalized bright.
+          if (temperature < 300) expect(Math.max(...table.rgb.samples[0], ...gray.samples[0])).toBeLessThan(1e-30);
+          else expect(luminance(table.rgb.samples[0]) / luminance(gray.samples[0])).toBeCloseTo(1, 3);
+        }
+        if (alpha === 1) {
+          // Gamma(5)*zeta(5)/(Gamma(4)*zeta(4)): analytic alpha=1 moment.
+          const analytic = 24 * 1.03692775514337 / (Math.PI ** 4 / 15)
+            * 550e-9 * 1.380649e-23 * temperature / (6.62607015e-34 * 299792458);
+          expect(table.planckMeanAbsorptionRatio.samples[0] / analytic).toBeCloseTo(1, 9);
+          expect(table.planckMeanAbsorptionRatio.samples[1] / table.planckMeanAbsorptionRatio.samples[0]).toBeCloseTo((temperature + 1) / temperature, 10);
+        }
+      }
+    }
+    const surfaceBefore = bakeSurfaceEmission(profile.surfaceEmission, observer);
+    const spatial = bakeSpatialEmission(profile.spatialEmission);
+    expect(bakeDimensionalGas(legacyProfile.gasEmission, observer, spatial).particleSpectrum).toBeUndefined();
+    expect(bakeDimensionalGas(profile.gasEmission, observer, spatial).particleSpectrum.model).toBe("power-law-soot-v1");
+    expect(bakeSurfaceEmission(profile.surfaceEmission, observer)).toEqual(surfaceBefore);
+    for (const absorptionAngstromExponent of [NaN, -1, 3]) {
+      expect(() => bakeParticleSpectrum({ ...parameters, absorptionAngstromExponent }, [150, 3200], 2, observer)).toThrow();
+    }
+  });
+  it("keeps a finite unmixed thermal core, grows its shear layer and cools only by ambient mixing", () => {
+    const p = { ...profile.gasEmission.spatialField, axialSamples: 97, radialSamples: 33 };
+    const field = bakeGasSpatialField(p, observer, [], {});
+    const at = (xi, radial) => field.basisSamples[Math.round(radial * (p.radialSamples - 1)) * p.axialSamples
+      + Math.round(xi / p.axialRadiusRange[1] * (p.axialSamples - 1))][0];
+    // Temperature excess on the axis remains the native boundary value inside
+    // the core. A photon gain or warmer boundary cannot satisfy this invariant.
+    for (const xi of [0, 2, 4, 6]) expect(at(xi, 0)).toBe(1);
+    expect(at(8, 0)).toBeLessThan(1);
+    expect(at(12, 0)).toBeLessThan(at(8, 0));
+    expect(at(0, 0.75)).toBe(1);
+    expect(at(2, 0.75)).toBeLessThan(at(0, 0.75));
+    expect(at(4, 0.75)).toBeLessThan(at(2, 0.75));
+    for (const xi of [0, 2, 6, 12, 24]) expect(at(xi, 1)).toBe(0);
+    expect(field.basisSamples.every(row => row[0] >= 0 && row[0] <= 1)).toBe(true);
+    expect(() => bakeGasSpatialField({ ...p, temperature: { ...p.temperature, potentialCoreLengthRadii: 0 } }, observer, [], {})).toThrow();
+  });
+  it("matches an independent frequency-form Planck reference and preserves photopic units", () => {
+    const surface = bakeSurfaceEmission(profile.surfaceEmission, observer);
+    expect(surface.samples).toHaveLength(512);
+    for (const kelvin of [300, 650, 1000, 1800, 3200]) {
+      for (const nm of [360, 500, 830]) expect(planckRadiance(nm, kelvin) / referenceRadiance(nm, kelvin)).toBeCloseTo(1, 12);
+      const exact = bakeSurfaceEmission({ sampleCount: 2, temperatureKelvinRange: [kelvin, kelvin + 1], visibleGrayEmissivity: 0.8 }, observer).samples[0];
+      const reference = referencePhotometricRgb(observer, kelvin, 0.8);
+      expect(Math.abs(luminance(exact) / luminance(reference) - 1)).toBeLessThan(0.005);
+    }
+    expect(Math.max(...surface.samples[0])).toBeLessThan(1e-15);
+    expect(surface.samples.every(rgb => rgb[0] >= rgb[1] && rgb[1] >= rgb[2])).toBe(true);
+    const half = bakeSurfaceEmission({ ...profile.surfaceEmission, visibleGrayEmissivity: 0.4 }, observer);
+    for (const i of [0, 100, 511]) expect(luminance(half.samples[i]) / luminance(surface.samples[i])).toBeCloseTo(0.5, 10);
+  });
+  it("bakes dimensional source terms and explicit sensitivity hypotheses without brightness normalization", () => {
+    const spatial = bakeSpatialEmission(profile.spatialEmission);
+    const gas = bakeDimensionalGas(profile.gasEmission, observer, spatial);
+    expect(gas.blackbody.unit).toBe("cd/m2");
+    expect(gas.normalizedDensityVolume).toBeGreaterThan(0);
+    expect(gas.normalizedDensityVolume).toBeLessThan(Math.PI / 3);
+    expect(gas.excitedRgbLumensPerWatt.every(v => Number.isFinite(v) && v >= 0)).toBe(true);
+    expect(gas.model).toBe("imposed-gas-bath-v2");
+    expect(gas.chemistryStatus).toBe("unavailable");
+    expect(gas.excitedRgbLumensPerWatt).toEqual([0, 0, 0]);
+    expect(gas.spatialField.basisSamples.every(row => row[2] === 0 && row[3] === 0)).toBe(true);
+    const ch = structuredClone(legacyProfile.gasEmission);
+    ch.excitedBands = ch.excitedBands.filter(band => band.species === "CH*");
+    const blue = bakeDimensionalGas(ch, observer, spatial).excitedRgbLumensPerWatt;
+    expect(blue[2]).toBeGreaterThan(blue[0]);
+    expect(blue[0]).toBeGreaterThan(blue[1]);
+    expect(() => bakeDimensionalGas({ ...ch, fuelHeatingValueJPerKg: NaN }, observer, spatial)).toThrow();
+    expect(() => bakeDimensionalGas({ ...ch, dry: { ...ch.dry, particleFuelPowerFraction: 2 } }, observer, spatial)).toThrow();
+    expect(() => bakeSurfaceEmission({ ...profile.surfaceEmission, visibleGrayEmissivity: 1.1 }, observer)).toThrow();
+    expect(() => bakeSurfaceEmission({ ...profile.surfaceEmission, temperatureKelvinRange: [1400, 300] }, observer)).toThrow();
+  });
+  it("reproduces the retained artifact and fails stale data verification", () => {
+    const first = generateExhaustArtifacts();
+    const second = generateExhaustArtifacts();
+    for (const name of Object.keys(first)) expect(first[name].equals(second[name])).toBe(true);
+    expect(Object.keys(checkGeneratedExhaustArtifacts())).toHaveLength(4);
+    expect(() => checkGeneratedExhaustArtifacts(name => name.endsWith(".png")
+      ? Buffer.from("stale image") : first[name])).toThrow(/is stale/);
+    const manifest = JSON.parse(first["f135-exhaust-lut.manifest.json"]);
+    expect(manifest.assetLicense).toBe("CC-BY-SA-4.0");
+    expect(manifest.assumptions.join(" ")).toContain("not measured F135");
+    expect(manifest.assumptions.join(" ")).toContain("not a unique computed F135 color");
+    expect(manifest.profile.hudAccentHex).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it("bakes an annular gas mask with the declared provisional angular pattern and downstream mixing", () => {
+    const mask = bakeSpatialEmission(profile.spatialEmission);
+    const decoded = decodePng(readFileSync(new URL("../src/generated/f135-exhaust-spatial.png", import.meta.url)));
+    expect(decoded.rgba).toEqual(mask.rgba);
+    const sample = (x, y, channel = 0) => mask.rgba[(Math.round((y + 1) / 2 * (mask.height - 1)) * mask.width
+      + Math.round((x + 1) / 2 * (mask.width - 1))) * 4 + channel];
+    const ring = Array.from({ length: 256 }, (_, index) => {
+      const theta = 2 * Math.PI * index / 256;
+      return sample(0.68 * Math.cos(theta), 0.68 * Math.sin(theta));
+    });
+    expect(Math.min(...ring)).toBeGreaterThan(20 * sample(0, 0));
+    expect(Math.max(...ring) - Math.min(...ring)).toBeGreaterThan(70);
+    // Use broad sampled angular neighborhoods, avoiding nearest-pixel extrema.
+    const lobes = Array.from({ length: 32 }, (_, index) => ring[index * 8]);
+    expect(lobes.filter((value, index) => value > lobes[(index + 31) % 32]
+      && value > lobes[(index + 1) % 32])).toHaveLength(8);
+    expect(sample(0, 0, 1)).toBeGreaterThan(250);
+    expect(sample(1, 0)).toBe(0);
+    expect(sample(1, 1, 1)).toBe(0);
+    const uniform = bakeSpatialEmission({ ...profile.spatialEmission, lobeContrast: 0 });
+    expect(uniform.rgba).not.toEqual(mask.rgba);
+    expect(() => bakeSpatialEmission({ ...profile.spatialEmission, lobeCount: 0.5 })).toThrow(/spatial/);
+  });
+
+});

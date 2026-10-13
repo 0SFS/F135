@@ -1,0 +1,69 @@
+import { f135ExhaustOpticalData } from "./generated/f135ExhaustOpticalData";
+import type { EngineGasOpticalData } from "./engineGasOptics";
+export { evaluateEngineGasOptics } from "./engineGasOptics";
+
+/** Data for one shared plume shader; no runtime spectral integration. */
+export interface EngineExhaustOpticalProfile {
+  readonly id: string;
+  /** Archival continuum preview; active spatial gas uses a dimensional field, not this preview. */
+  readonly textureUrl: string;
+  /** Emitted assumptions, source/license attribution and deterministic artifact hashes. */
+  readonly provenanceUrl: string;
+  readonly width: number;
+  readonly height: number;
+  readonly colorSpace: "linear-srgb";
+  readonly dry: {
+    readonly firstRow: number; readonly rowCount: number;
+    readonly temperatureKelvinRange: readonly [number, number];
+  };
+  readonly afterburner: {
+    readonly firstRow: number; readonly rowCount: number;
+    readonly temperatureKelvinRange: readonly [number, number];
+  };
+  /** Display-only UI accent; not a radiometric quantity. */
+  readonly hudAccentHex: string;
+  readonly gasEmission?: EngineGasOpticalData;
+  /** Legacy gas cross-section, superseded when gasEmission.spatialField exists. Lobes remain an archived hypothesis. */
+  readonly spatialEmission?: {
+    readonly textureUrl: string;
+    readonly width: number;
+    readonly height: number;
+    readonly downstreamMixFraction: number;
+  };
+  /** Relative gas RGB for one optional nearby light, indexed by the same Kelvin bank. */
+  readonly sceneEmission?: {
+    readonly axialFraction: number;
+    readonly dry: readonly (readonly [number, number, number])[];
+    readonly afterburner: readonly (readonly [number, number, number])[];
+  };
+  /**
+   * Uniform absolute-Kelvin samples for declared hardware. Weighted linear-RGB
+   * Y is photopic luminance for the assumed surface emissivity. A presentation
+   * reference converts cd/m² to renderer emission; this is not F135 calibration.
+   */
+  readonly surfaceEmission?: {
+    readonly temperatureKelvinRange: readonly [number, number];
+    readonly unit: "cd/m2";
+    readonly samples: readonly (readonly [number, number, number])[];
+  };
+  /** Baked artistic brightness only; interpolate periodically using native simulation time. */
+  readonly temporalEmission?: { readonly periodSeconds: number; readonly samples: readonly number[] };
+}
+
+const f135OpticalProfile: EngineExhaustOpticalProfile = {
+  ...f135ExhaustOpticalData,
+  textureUrl: new URL("./generated/f135-exhaust-lut.png", import.meta.url).href,
+  provenanceUrl: new URL("./generated/f135-exhaust-lut.manifest.json", import.meta.url).href,
+  spatialEmission: {
+    ...f135ExhaustOpticalData.spatialEmission,
+    textureUrl: new URL("./generated/f135-exhaust-spatial.png", import.meta.url).href,
+  },
+};
+
+const profiles: ReadonlyMap<string, EngineExhaustOpticalProfile> = new Map([
+  [f135OpticalProfile.id, f135OpticalProfile],
+]);
+
+export function getEngineExhaustOpticalProfile(id: string): EngineExhaustOpticalProfile | undefined {
+  return profiles.get(id);
+}
