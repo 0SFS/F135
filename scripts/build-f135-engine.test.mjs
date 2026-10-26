@@ -6,6 +6,7 @@ import { exportedFrames } from './f135Engine/mechanism.mjs';
 import { readFileSync } from 'node:fs';
 import { buildSource,profile,bearingFrames } from './f135Engine/source.mjs';
 import { exportEngine,removeOriginalNozzle,decodeGlb,posedMeshes } from './f135Engine/glb.mjs';
+import { buildCloseout } from './f135Engine/closeout.mjs';
 const read=path=>readFileSync(new URL(`../../fly/${path}`,import.meta.url));
 describe('original F135 engine source and generated asset boundary',()=>{
   it('reproduces installed/full assets and excludes stand-only geometry from flight',()=>{
@@ -17,14 +18,26 @@ describe('original F135 engine source and generated asset boundary',()=>{
     const fullMeshes=new Map(posedMeshes(fi).map(m=>[m.name,m]));
     for(const m of posedMeshes(ii))expect(fullMeshes.get(m.name)).toEqual(m);
   });
-  it('removes only old engine nodes and its separately audited extras component',()=>{
-    const original=read('public/aircraft/f-35b/F-35B_AF267.glb'),output=removeOriginalNozzle(original),glb=decodeGlb(output.bytes);
+  it('removes only old engine nodes and its separately audited extras component, and adds the aft closeout',()=>{
+    const original=read('public/aircraft/f-35b/F-35B_AF267.glb'),installed=decodeGlb(read('public/aircraft/f-35b/engine/F135-PW-600-installed.glb'));
+    const output=removeOriginalNozzle(original,buildCloseout(decodeGlb(original),installed,profile)),glb=decodeGlb(output.bytes),bare=removeOriginalNozzle(original);
     expect(output.bytes).toEqual(read('public/aircraft/f-35b/F-35B_AF267-airframe.glb'));
     expect(output.removedNodes).toHaveLength(17);expect(output.removedExtrasEngineTriangles).toBe(124);
-    expect(output.retainedViewsIdentical).toBe(434);
+    expect(output.retainedViewsIdentical).toBe(434);expect(bare.retainedViewsIdentical).toBe(434);
+    // The closeout only lengthens extras' livery and darkmet2 primitives: no new mesh, primitive or draw call.
+    expect(output.closeoutViews).toBe(8);expect(bare.closeoutViews).toBe(0);expect(output.closeout.triangles).toEqual({shroud:60,recess:560,bulkhead:144});
+    expect(output.triangles-bare.triangles).toBe(764);expect(glb.json.meshes.map(m=>m.primitives.length)).toEqual(decodeGlb(bare.bytes).json.meshes.map(m=>m.primitives.length));
     expect(glb.json.nodes.some(n=>n.name==='vtol'||n.name.startsWith('feather.'))).toBe(false);
     for(const name of ['extras','fuselage','leftWheel','rightWheel','noseWheel','leftEngineDoor','rightEngineDoor'])expect(glb.json.nodes.some(n=>n.name===name)).toBe(true);
     expect(glb.json.images).toHaveLength(decodeGlb(original).json.images.length);
+  },60000);
+  it('carries the aft casing the closeout surrounds in both exports, continuous with the stand-only casing',()=>{
+    const source=buildSource(),aft=source.meshes.find(m=>m.name==='F135_AftCasing'),stand=source.meshes.find(m=>m.name==='F135_ExternalCasing');
+    expect(aft.standOnly).toBe(false);expect(stand.standOnly).toBe(true);
+    const ring=(m,z)=>new Set(m.positions.flatMap((_,i)=>i%3===0&&Math.abs(m.positions[i+2]-z)<1e-9?[`${Number(m.positions[i].toFixed(6))},${Number(m.positions[i+1].toFixed(6))}`]:[]));
+    const split=Math.min(...aft.positions.filter((_,i)=>i%3===2)),a=ring(aft,split),b=ring(stand,split);
+    expect(a.size).toBe(profile.geometry.circumferentialSegments);expect([...a].every(p=>b.has(p))).toBe(true);
+    expect(Math.max(...stand.positions.filter((_,i)=>i%3===2))).toBeCloseTo(split,12);
   });
   it('follows native pitch/yaw direction through all three rigid circular bearings',()=>{
     for(const pitch of [0,.01,.5,1,Math.PI/2,95*Math.PI/180])for(const yaw of [-.17,0,.17]){

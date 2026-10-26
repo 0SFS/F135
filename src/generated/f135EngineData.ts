@@ -62,23 +62,23 @@ export const F135_ENGINE_GEOMETRY = {
     {
       "variant": "full",
       "path": "aircraft/f-35b/engine/F135-PW-600-full.glb",
-      "triangles": 24024,
-      "bytes": 1864272,
-      "sha256": "0fc8083a3a4d5d5d76946ea3602d4a23ebc508e58301145e489c59c1801ff71f"
+      "triangles": 24408,
+      "bytes": 1892588,
+      "sha256": "1cd94e8e3c482db4683f534332755143b373187b2162dd855c28bc05b9d6a2a2"
     },
     {
       "variant": "installed",
       "path": "aircraft/f-35b/engine/F135-PW-600-installed.glb",
-      "triangles": 12592,
-      "bytes": 1037840,
-      "sha256": "4e7d837e2ab5303ab9d90a3b3321baa469e5fc204acad7e0b2f59185990aa341"
+      "triangles": 12976,
+      "bytes": 1066152,
+      "sha256": "659939a06418c56eb4d7ef40262c53c996face367776e74f10086fe1053ff5e2"
     },
     {
       "variant": "airframe",
       "path": "aircraft/f-35b/F-35B_AF267-airframe.glb",
-      "triangles": 11467,
-      "bytes": 1444788,
-      "sha256": "76c76d6230fcf3259e2552d793f95f5421a2ab3cc35f39a5ebf01817b38d5814"
+      "triangles": 12231,
+      "bytes": 1466196,
+      "sha256": "d27fa6a637e7678cea6e8a2bab0661ca0493404f04796af92b870f7c178d540c"
     }
   ]
 } as const;

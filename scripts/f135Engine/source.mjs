@@ -27,6 +27,13 @@ export function bearingFrames(pitch = 0, yaw = 0, aperture = 0) {
   const articulated=Object.fromEntries(Object.entries(apertureFrame).map(([name,frame])=>[name,p=>add(pn,rn(frame(p)))]));
   return { ...articulated, F135_Engine:p=>p, F135_Bearing1:r1, F135_Bearing2:p=>add(p2,r2(p)), F135_Bearing3:p=>add(p3,r3(p)), F135_Nozzle:p=>add(pn,rn(p)), direction:rn([0,0,1]), exit:add(pn,rn([0,0,apertureState(aperture,profile.aperture).exitZ])) };
 }
+// Outer casing stations (engine z, radius). Aft of the split the casing shows
+// through the airframe's engine-door cut, so that band, with a short junction
+// to the forward swivel bearing, is in both exports; closeout.mjs sizes the
+// airframe bulkhead's opening round it.
+const CASING=[[-3.83,.548],[-3.38,.555],[-2.82,.51],[-2.42,.46],[-2.0,.48],[-1.64,.53],[-1.22,.53],[-.93,.505],[-.1,.545]], CASING_SPLIT=-.47;
+const casingRadius=z=>{const i=CASING.findIndex(([s])=>s>=z),[z0,r0]=CASING[i-1],[z1,r1]=CASING[i];return r0+(r1-r0)*(z-z0)/(z1-z0);};
+export const AFT_CASING=[[CASING_SPLIT,casingRadius(CASING_SPLIT)],[-.1,.545],[-.025,.53]];
 const materials = [
   ['F135_Outer',[0.24,0.255,0.28,1],0.85,0.37],
   ['F135_LinerHot',[0.105,0.085,0.066,1],0.72,0.58],
@@ -163,8 +170,9 @@ export function buildSource() {
   const inletShade=make('F135_IntakeOccluder','F135_Dark','F135_Engine');skin(inletShade,[circle(g.inletStation+.28,.001),circle(g.inletStation+.28,g.inletRadius)]);skin(inletShade,[circle(g.inletStation-.04,g.inletRadius-.016),circle(g.inletStation+.28,g.inletRadius)],{inside:true});
   // Complete external engine is authored once, omitted structurally at export.
   const casing=make('F135_ExternalCasing','F135_Casing','F135_Engine',true);
-  const cs=[[-3.83,.548],[-3.38,.555],[-2.82,.51],[-2.42,.46],[-2.0,.48],[-1.64,.53],[-1.22,.53],[-.93,.505],[-.1,.545]];
-  skin(casing,cs.map(([z,r])=>circle(z,r)));
+  const cs=CASING;
+  skin(casing,[...cs.filter(([z])=>z<CASING_SPLIT),AFT_CASING[0]].map(([z,r])=>circle(z,r)));
+  const aftCasing=make('F135_AftCasing','F135_Casing','F135_Engine');skin(aftCasing,AFT_CASING.map(([z,r])=>circle(z,r)));
   const ribs=make('F135_CasingFlanges','F135_Outer','F135_Engine',true);
   for(const [z,r]of cs)ring(ribs,z,r,r+.025,.045);
   const details=make('F135_Accessories','F135_Casing','F135_Engine',true);

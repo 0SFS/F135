@@ -22,7 +22,7 @@ export function exportEngine(source,variant) {
   const json={asset:{version:'2.0',generator:'0sfs original F135 source v2',copyright:'Original visual reconstruction, AGPL-3.0-only; no F135 calibration claim'},scene:0,scenes:[{nodes:[0]}],nodes,meshes:gm,materials:source.materials,accessors,bufferViews,buffers:[{byteLength:offset}],extras:{variant,profile:'f135-pw600-rigid-aperture-v2',axes:'+Y up; +Z aft',units:'metres',apertureMechanism:'rigid-cd-flaps-v1',approximation:true}};
   return {bytes:encodeGlb(json,Buffer.concat(binary)),triangles:meshes.reduce((n,m)=>n+m.positions.length/9,0),meshes:meshes.length,standOnlyMeshes:meshes.filter(m=>m.standOnly).map(m=>m.name),morphMeshes:meshes.filter(m=>m.openPositions).map(m=>m.name)};
 }
-export function removeOriginalNozzle(bytes) {
+export function removeOriginalNozzle(bytes,closeout) {
   const {json:original,binary}=decodeGlb(bytes),j=structuredClone(original),removed=new Set(), root=j.nodes.findIndex(n=>n.name==='vtol');
   if(root<0||j.skins?.length||j.animations?.length)throw new Error('Unexpected source hierarchy');
   // AF267's `extras` also includes one disconnected, obsolete static engine
@@ -38,6 +38,25 @@ export function removeOriginalNozzle(bytes) {
     if(a.min||a.max){const values=accessor({json:j,binary},ai);a.min=Array.from({length:components},(_,k)=>Math.min(...values.filter((_,i)=>i%components===k)));a.max=Array.from({length:components},(_,k)=>Math.max(...values.filter((_,i)=>i%components===k)));}
   }
   j.accessors[tube.indices].count=564;j.bufferViews[j.accessors[tube.indices].bufferView].byteLength=564*2;
+  // closeout.mjs's surfaces go into the primitives of the same material on its
+  // node, after their source vertices and indices: no new mesh or draw call.
+  const appended=new Map();
+  if(closeout){
+    const mesh=j.meshes[j.nodes.find(n=>n.name===closeout.node).mesh],users=new Map();
+    for(const m of j.meshes)for(const p of m.primitives)for(const a of [...Object.values(p.attributes),p.indices,...(p.targets??[]).flatMap(t=>Object.values(t))])users.set(a,(users.get(a)??0)+1);
+    const extend=(ai,bytes,count)=>{const a=j.accessors[ai],v=j.bufferViews[a.bufferView];if(users.get(ai)!==1||a.byteOffset||v.byteStride||appended.has(a.bufferView)||j.accessors.filter(x=>x.bufferView===a.bufferView).length!==1)throw new Error('Closeout target shares its vertex data');appended.set(a.bufferView,bytes);a.count+=count;v.byteLength+=bytes.length;return a;};
+    for(const part of closeout.parts){
+      const p=mesh.primitives.find(p=>j.materials[p.material]?.name===part.material),base=p&&j.accessors[p.attributes.POSITION].count;
+      if(!p||Object.keys(p.attributes).sort().join()!=='NORMAL,POSITION,TEXCOORD_0'||p.targets||(p.mode??4)!==4||j.accessors[p.indices].componentType!==5123||base+part.positions.length>65535)throw new Error(`No closeout target for ${part.material}`);
+      for(const [name,values]of [['POSITION',part.positions],['NORMAL',part.normals],['TEXCOORD_0',part.uvs]]){
+        const flat=values.flat(),bytes=Buffer.alloc(flat.length*4);flat.forEach((v,i)=>bytes.writeFloatLE(v,i*4));
+        const a=extend(p.attributes[name],bytes,values.length),components=values[0].length;if(a.componentType!==5126)throw new Error('Unexpected closeout target layout');
+        // Bounds of the float32 values as stored.
+        if(a.min||a.max)for(let k=0;k<components;k++){const stored=values.map(v=>Math.fround(v[k]));a.min[k]=Math.min(a.min[k],...stored);a.max[k]=Math.max(a.max[k],...stored);}
+      }
+      const indices=Buffer.alloc(part.indices.length*2);part.indices.forEach((v,i)=>indices.writeUInt16LE(base+v,i*2));extend(p.indices,indices,part.indices.length);
+    }
+  }
 
   const visit=i=>{removed.add(i);for(const child of j.nodes[i].children??[])visit(child);};visit(root);
   const mapping=new Map();j.nodes.forEach((_,i)=>{if(!removed.has(i))mapping.set(i,mapping.size);});
@@ -48,11 +67,12 @@ export function removeOriginalNozzle(bytes) {
   const needed=new Set();for(const m of j.meshes)for(const p of m.primitives){for(const a of Object.values(p.attributes))needed.add(a);if(p.indices!==undefined)needed.add(p.indices);for(const t of p.targets??[])for(const a of Object.values(t))needed.add(a);}
   const am=new Map([...needed].sort((a,b)=>a-b).map((v,i)=>[v,i]));j.accessors=[...am.keys()].map(i=>j.accessors[i]);for(const m of j.meshes)for(const p of m.primitives){for(const k of Object.keys(p.attributes))p.attributes[k]=am.get(p.attributes[k]);if(p.indices!==undefined)p.indices=am.get(p.indices);for(const t of p.targets??[])for(const k of Object.keys(t))t[k]=am.get(t[k]);}
   const views=new Set(j.accessors.map(a=>a.bufferView));for(const i of j.images??[])if(i.bufferView!==undefined)views.add(i.bufferView);
-  const vm=new Map([...views].sort((a,b)=>a-b).map((v,i)=>[v,i]));let size=0;const chunks=[];j.bufferViews=[...vm.keys()].map(i=>{const v=j.bufferViews[i],chunk=binary.subarray(v.byteOffset??0,(v.byteOffset??0)+v.byteLength),aligned=Buffer.alloc(Math.ceil(chunk.length/4)*4);chunk.copy(aligned);chunks.push(aligned);const next={...v,byteOffset:size,buffer:0};size+=aligned.length;return next;});for(const a of j.accessors)a.bufferView=vm.get(a.bufferView);for(const i of j.images??[])if(i.bufferView!==undefined)i.bufferView=vm.get(i.bufferView);j.buffers=[{byteLength:size}];j.asset.generator=`${j.asset.generator??'glTF'}; 0sfs remove rejected engine subtree`;
+  const vm=new Map([...views].sort((a,b)=>a-b).map((v,i)=>[v,i]));let size=0;const chunks=[];j.bufferViews=[...vm.keys()].map(i=>{const v=j.bufferViews[i],extra=appended.get(i)??Buffer.alloc(0),start=v.byteOffset??0,chunk=Buffer.concat([binary.subarray(start,start+v.byteLength-extra.length),extra]),aligned=Buffer.alloc(Math.ceil(chunk.length/4)*4);chunk.copy(aligned);chunks.push(aligned);const next={...v,byteOffset:size,buffer:0};size+=aligned.length;return next;});for(const a of j.accessors)a.bufferView=vm.get(a.bufferView);for(const i of j.images??[])if(i.bufferView!==undefined)i.bufferView=vm.get(i.bufferView);j.buffers=[{byteLength:size}];j.asset.generator=`${j.asset.generator??'glTF'}; 0sfs remove rejected engine subtree${closeout?'; 0sfs aft closeout':''}`;
   const output=encodeGlb(j,Buffer.concat(chunks)),parsed=decodeGlb(output);
-  // Check actual source bytes for every retained view, including images.
-  for(const [old,n]of vm){const ov=original.bufferViews[old],nv=j.bufferViews[n];if(!binary.subarray(ov.byteOffset??0,(ov.byteOffset??0)+nv.byteLength).equals(parsed.binary.subarray(nv.byteOffset,nv.byteOffset+nv.byteLength)))throw new Error('Airframe bytes changed');}
-  return {bytes:output,removedNodes:[...removed].map(i=>original.nodes[i].name),removedExtrasEngineTriangles:124,retainedViewsIdentical:vm.size,triangles:j.meshes.reduce((sum,m)=>sum+m.primitives.reduce((s,p)=>s+(j.accessors[p.indices??p.attributes.POSITION].count/3),0),0),meshes:j.meshes.length};
+  // Check actual source bytes for every retained view, including images: each
+  // starts with its source bytes, and only closeout targets carry more after them.
+  for(const [old,n]of vm){const ov=original.bufferViews[old],nv=j.bufferViews[n],extra=appended.get(old),kept=nv.byteLength-(extra?.length??0);if(!binary.subarray(ov.byteOffset??0,(ov.byteOffset??0)+kept).equals(parsed.binary.subarray(nv.byteOffset,nv.byteOffset+kept))||extra&&!extra.equals(parsed.binary.subarray(nv.byteOffset+kept,nv.byteOffset+nv.byteLength)))throw new Error('Airframe bytes changed');}
+  return {bytes:output,removedNodes:[...removed].map(i=>original.nodes[i].name),removedExtrasEngineTriangles:124,retainedViewsIdentical:vm.size,closeoutViews:appended.size,...(closeout?{closeout:{node:closeout.node,triangles:closeout.triangles,stations:closeout.stations,margin:closeout.margin,approximation:true}}:{}),triangles:j.meshes.reduce((sum,m)=>sum+m.primitives.reduce((s,p)=>s+(j.accessors[p.indices??p.attributes.POSITION].count/3),0),0),meshes:j.meshes.length};
 }
 export function posedMeshes(gltf,aperture=0) {
   return gltf.json.nodes.filter(n=>n.mesh!==undefined).map(node=>{const m=gltf.json.meshes[node.mesh],p=m.primitives[0],base=accessor(gltf,p.attributes.POSITION),delta=p.targets?.[0]?accessor(gltf,p.targets[0].POSITION):null,normalDelta=p.targets?.[0]?.NORMAL===undefined?null:accessor(gltf,p.targets[0].NORMAL),parents=gltf.json.nodes.filter(n=>n.children?.includes(gltf.json.nodes.indexOf(node)));return {name:node.name,parent:parents[0]?.name,positions:base.map((v,i)=>v+(delta?.[i]??0)*aperture),normals:accessor(gltf,p.attributes.NORMAL).map((v,i)=>v+(normalDelta?.[i]??0)*aperture),material:gltf.json.materials[p.material].name,standOnly:node.extras?.standOnly,extras:node.extras};});
