@@ -14,7 +14,8 @@
       "source": "./src/generated/f135ExhaustOpticalData.ts",
       "default": "./src/generated/f135ExhaustOpticalData.ts"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./manifest": "./public/0sfs-mod.json"
   },
   "peerDependencies": {
     "@babylonjs/core": "8.56.2",
@@ -36,5 +37,8 @@
     "@0sfs/engines": "0.1.0",
     "@babylonjs/loaders": "8.56.2",
     "vitest": "4.1.6"
+  },
+  "scripts": {
+    "validate": "node scripts/validate-mod.mjs"
   }
 }
