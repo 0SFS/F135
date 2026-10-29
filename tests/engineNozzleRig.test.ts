@@ -85,6 +85,26 @@ describe("three-bearing engine nozzle", () => {
       });
       const setter = vi.spyOn(parts[0].position, "set");
       rig.update(Math.PI / 2, 0.1, 0.5);
+      const angles = threeBearingAngles(Math.PI / 2, 0.1, beta);
+      const bearingRest = [
+        Quaternion.Identity(),
+        Quaternion.RotationAxis(Y, beta),
+        Quaternion.RotationAxis(Y, -2 * beta),
+      ];
+      bearings.forEach((node, index) => {
+        const expected = bearingRest[index].multiply(Quaternion.RotationAxis(Z, angles[index]));
+        expect(node.rotationQuaternion!.x).toBe(expected.x);
+        expect(node.rotationQuaternion!.y).toBe(expected.y);
+        expect(node.rotationQuaternion!.z).toBe(expected.z);
+        expect(node.rotationQuaternion!.w).toBe(expected.w);
+      });
+      const convergent = parts.find(node => node.name === "F135_Convergent_01")!;
+      const azimuth = Quaternion.RotationAxis(Z, -Math.PI / 2);
+      const expectedFlap = azimuth.multiply(Quaternion.RotationAxis(new Vector3(1, 0, 0), rig.apertureGeometry.convergent));
+      expect(convergent.rotationQuaternion!.x).toBe(expectedFlap.x);
+      expect(convergent.rotationQuaternion!.y).toBe(expectedFlap.y);
+      expect(convergent.rotationQuaternion!.z).toBe(expectedFlap.z);
+      expect(convergent.rotationQuaternion!.w).toBe(expectedFlap.w);
       const rotations = [...bearings, ...parts].map(node => node.rotationQuaternion);
       expect(rig.partCount).toBe(112);
       rig.update(Math.PI / 2, 0.1, 0.5);
