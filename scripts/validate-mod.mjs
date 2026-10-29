@@ -6,7 +6,7 @@ const failures = [];
 const fail = (message) => failures.push(message);
 
 if (manifest.schemaVersion !== 1) fail("schemaVersion must be 1.");
-if (!["aircraft", "engine", "payload", "plugin"].includes(manifest.kind)) fail("kind must be aircraft, engine, payload, or plugin.");
+if (!["aircraft", "engine", "component", "payload", "plugin", "modpack"].includes(manifest.kind)) fail("kind must be aircraft, engine, component, payload, plugin, or modpack.");
 if (typeof manifest.id !== "string" || !manifest.id) fail("id is required.");
 if (typeof manifest.name !== "string" || typeof manifest.summary !== "string") fail("name and summary are required.");
 const execution = manifest.js ? "js" : manifest.wasm ? "wasm" : "declarative";
@@ -22,6 +22,12 @@ for (const dependency of manifest.dependencies ?? []) {
 if (manifest.kind === "payload") {
   const payloadType = manifest.payload?.payloadType;
   if (payloadType !== "store" && payloadType !== "external-tank") fail("A payload mod needs payloadType store or external-tank.");
+}
+if (manifest.kind === "modpack") {
+  if (!manifest.dependencies?.length) fail("A modpack lists at least one mod in dependencies.");
+  for (const key of ["aircraft", "engine", "payload", "jsbsimFiles", "quadcopter", "dji", "quad", "camera", "cameraPreview", "wasm", "js"]) {
+    if (manifest[key] !== undefined) fail(`A modpack only lists mods; remove its ${key}.`);
+  }
 }
 if (manifest.wasm?.path) {
   const wasmPath = `public/${manifest.wasm.path}`;
