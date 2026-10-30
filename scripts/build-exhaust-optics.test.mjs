@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
-import { inflateSync } from "node:zlib";
+import { fileURLToPath } from "node:url";
+import { crc32, deflateSync, inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { checkGeneratedExhaustArtifacts, generateExhaustArtifacts } from "./build-exhaust-optics.mjs";
-import { bakeDimensionalGas, bakeGasSpatialField, bakeParticleSpectrum, bakeSpatialEmission, bakeSurfaceEmission, parseObserverCsv, planckRadiance } from "./exhaustOptics/bake.mjs";
+import { bakeDimensionalGas, bakeGasSpatialField, bakeParticleSpectrum, bakeSpatialEmission, bakeSurfaceEmission, encodeRgbaPng, keepInstalledPng, parseObserverCsv, planckRadiance, samePngImage } from "./exhaustOptics/bake.mjs";
 
 import { referenceRadiance, referencePhotometricRgb, referenceParticlePlanckMean, referenceParticleXyz, luminance } from "./exhaustOptics/reference.mjs";
 
@@ -125,6 +126,36 @@ describe("dimensional offline exhaust optical bake", () => {
     expect(() => bakeSurfaceEmission({ ...profile.surfaceEmission, visibleGrayEmissivity: 1.1 }, observer)).toThrow();
     expect(() => bakeSurfaceEmission({ ...profile.surfaceEmission, temperatureKelvinRange: [1400, 300] }, observer)).toThrow();
   });
+  it("keeps an installed PNG that shows the same image, however another zlib compressed it", () => {
+    const rgba = Uint8Array.from({ length: 64 * 64 * 4 }, (_, index) => (index * 37) % 251);
+    const png = encodeRgbaPng(64, 64, rgba);
+    // The same scanlines, compressed differently, as another zlib version would.
+    const chunk = (type, body) => {
+      const head = Buffer.alloc(8);
+      head.writeUInt32BE(body.length);
+      head.write(type, 4, "latin1");
+      const sum = Buffer.alloc(4);
+      sum.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type, "latin1"), body])));
+      return Buffer.concat([head, body, sum]);
+    };
+    const scanlines = inflateSync(png.subarray(33 + 8, png.length - 12 - 4));
+    const recompressed = Buffer.concat([png.subarray(0, 33), chunk("IDAT", deflateSync(scanlines, { level: 1 })), chunk("IEND", Buffer.alloc(0))]);
+    expect(recompressed.equals(png)).toBe(false);
+    expect(samePngImage(recompressed, png)).toBe(true);
+    const changed = Uint8Array.from(rgba);
+    changed[5] ^= 1;
+    expect(samePngImage(encodeRgbaPng(64, 64, changed), png)).toBe(false);
+    expect(samePngImage(Buffer.from("stale image"), png)).toBe(false);
+    const installed = fileURLToPath(new URL("../src/generated/f135-exhaust-lut.png", import.meta.url));
+    expect(keepInstalledPng(png, installed)).toBe(png);
+    expect(keepInstalledPng(png, `${installed}.missing`)).toBe(png);
+    const installedBytes = readFileSync(installed);
+    const reencoded = Buffer.concat([installedBytes.subarray(0, 33),
+      chunk("IDAT", deflateSync(inflateSync(installedBytes.subarray(33 + 8, installedBytes.length - 12 - 4)), { level: 1 })),
+      chunk("IEND", Buffer.alloc(0))]);
+    expect(keepInstalledPng(reencoded, installed).equals(installedBytes)).toBe(true);
+  });
+
   it("reproduces the retained artifact and fails stale data verification", () => {
     const first = generateExhaustArtifacts();
     const second = generateExhaustArtifacts();

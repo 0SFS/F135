@@ -1,4 +1,5 @@
-import { deflateSync } from "node:zlib";
+import { existsSync, readFileSync } from "node:fs";
+import { deflateSync, inflateSync } from "node:zlib";
 
 // SI constants are exact; the returned spectral radiance is W sr^-1 m^-3.
 export function planckRadiance(wavelengthNm, temperatureK) {
@@ -455,4 +456,40 @@ export function encodeRgbaPng(width, height, rgba) {
     pngChunk("IDAT", deflateSync(scanlines, { level: 9 })),
     pngChunk("IEND", Buffer.alloc(0)),
   ]);
+}
+
+/** A PNG's signature, header and inflated scanlines: the image it shows, however zlib compressed it. */
+function pngImage(png) {
+  const parts = [png.subarray(0, 8)], data = [];
+  for (let offset = 8; offset + 12 <= png.length;) {
+    const length = png.readUInt32BE(offset);
+    const type = png.toString("latin1", offset + 4, offset + 8);
+    const body = png.subarray(offset + 8, offset + 8 + length);
+    if (type === "IHDR") parts.push(body);
+    else if (type === "IDAT") data.push(body);
+    offset += 12 + length;
+  }
+  return Buffer.concat([...parts, inflateSync(Buffer.concat(data))]);
+}
+
+/** Whether two PNGs show the same image, whatever their compressed bytes. */
+export function samePngImage(a, b) {
+  try {
+    return pngImage(a).equals(pngImage(b));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `png`, or the PNG installed at `installedPath` when it already shows the same
+ * image. zlib versions compress the same scanlines to different bytes (Node
+ * 22.22's zlib 1.3.1 and Node 26's 1.2.12 do), so a generator that keeps the
+ * installed encoding checks and rebuilds alike on either, rather than calling
+ * the other's files stale or rewriting them.
+ */
+export function keepInstalledPng(png, installedPath) {
+  if (!existsSync(installedPath)) return png;
+  const installed = readFileSync(installedPath);
+  return samePngImage(installed, png) ? installed : png;
 }

@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { newOutputDirectory } from "../../fly/scripts/outputDirectory.mjs";
-import { bakeDimensionalGas, bakeSpatialEmission, bakeSurfaceEmission, encodeRgbaPng, parseObserverCsv } from "./exhaustOptics/bake.mjs";
+import { bakeDimensionalGas, bakeSpatialEmission, bakeSurfaceEmission, encodeRgbaPng, keepInstalledPng, parseObserverCsv } from "./exhaustOptics/bake.mjs";
 import { generateEngineSmokeSprite } from "../../exhaust/scripts/build-engine-smoke.mjs";
 
 const root = fileURLToPath(new URL("../../fly/", import.meta.url));
@@ -22,7 +22,8 @@ export function generateExhaustArtifacts() {
   const profile = JSON.parse(profileBytes.toString());
   const observer = parseObserverCsv(observerBytes);
   const spatial = bakeSpatialEmission(profile.spatialEmission);
-  const spatialPng = encodeRgbaPng(spatial.width, spatial.height, spatial.rgba);
+  const spatialPng = keepInstalledPng(encodeRgbaPng(spatial.width, spatial.height, spatial.rgba),
+    path.join(generatedOpticalDirectory, "f135-exhaust-spatial.png"));
   const gasEmission = bakeDimensionalGas(profile.gasEmission, observer, spatial);
   const parcel = profile.reactionParcel;
   if (parcel) {
@@ -46,7 +47,8 @@ export function generateExhaustArtifacts() {
   // Runtime uses the floating-point dimensional table, never this PNG.
   const rgba = Buffer.from(gasEmission.blackbody.samples.flatMap(rgb => [...rgb.map(value =>
     Math.round(255 * Math.min(1, value / 10000))), 255]));
-  const png = encodeRgbaPng(1, gasEmission.blackbody.samples.length, rgba);
+  const png = keepInstalledPng(encodeRgbaPng(1, gasEmission.blackbody.samples.length, rgba),
+    path.join(generatedOpticalDirectory, "f135-exhaust-lut.png"));
   const definition = {
     id: profile.id, width: 1, height: gasEmission.blackbody.samples.length, colorSpace: "linear-srgb",
     dry: { firstRow: 0, rowCount: gasEmission.blackbody.samples.length, temperatureKelvinRange: profile.gasEmission.temperatureKelvinRange },

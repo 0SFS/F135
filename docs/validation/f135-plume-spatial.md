@@ -218,7 +218,9 @@ Reproduce the independent optical and geometric diagnostics with
 dated directories under `build/`. Native trace reproduction and its explicit
 frozen-baseline option are documented in the native evidence README. Generated
 optical assets use `npm run build:exhaust`; `npm run verify:exhaust` checks their
-bytes without replacing them.
+bytes without replacing them. Both keep an installed PNG that shows the same
+image, since zlib versions compress the same pixels to different bytes, so either
+Node version checks and rebuilds the same files.
 
 ## Acceptance limits and user check
 

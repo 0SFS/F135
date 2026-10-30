@@ -43823,13 +43823,13 @@
     },
     {
       "path": "../F135/scripts/exhaustOptics/bake.mjs",
-      "bytes": 28159,
-      "sha256": "2164fa7cf9dce2d2cf0d3bc5bb39781a211d27fadca79054d8de80e71cafe907"
+      "bytes": 29607,
+      "sha256": "92e8299e9ecee776ae50be6bbb6dbe8973865393db86ec3d20491a0f96dcdc4f"
     },
     {
       "path": "../F135/scripts/build-exhaust-optics.mjs",
-      "bytes": 9634,
-      "sha256": "34d83c2f5dba3b50f0b16db760cc3ab2178d28821a846771f1d04edef69bc396"
+      "bytes": 9824,
+      "sha256": "0df2260c21a2c7b542c9cdddf32a9fe74a8e9d3e725356ec42af546e22b49e2f"
     },
     {
       "path": "../F135/scripts/exhaustOptics/combustion/ndodecane-ch-a-parcel.json",
