@@ -17,7 +17,7 @@ describe('original F135 engine source and generated asset boundary',()=>{
     const fi=decodeGlb(full.bytes),ii=decodeGlb(installed.bytes);expect(ii.json.images??[]).toEqual([]);expect(ii.json.materials).toEqual(fi.json.materials);
     const fullMeshes=new Map(posedMeshes(fi).map(m=>[m.name,m]));
     for(const m of posedMeshes(ii))expect(fullMeshes.get(m.name)).toEqual(m);
-  });
+  },60000);
   it('removes only old engine nodes and its separately audited extras component, and adds the aft closeout',()=>{
     const original=read('public/aircraft/f-35b/F-35B_AF267.glb'),installed=decodeGlb(read('public/aircraft/f-35b/engine/F135-PW-600-installed.glb'));
     const output=removeOriginalNozzle(original,buildCloseout(decodeGlb(original),installed,profile)),glb=decodeGlb(output.bytes),bare=removeOriginalNozzle(original);

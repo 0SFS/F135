@@ -16,7 +16,7 @@ This repository is a 0SFS mod. `public/0sfs-mod.json` is the manifest. GitHub Pa
 
 Fork the repository, edit the manifest and the files it names, push, then add the GitHub URL in the simulator's Mods tab.
 
-Topics: `0sfs-mod` and `0sfs-engine`.
+Topics: `0sfs-mod` and `0sfs-engine-mod`. [Modding guide](https://github.com/0SFS/docs/blob/main/modding.md).
 
 ## Community
 
