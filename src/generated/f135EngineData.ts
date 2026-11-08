@@ -63,15 +63,15 @@ export const F135_ENGINE_GEOMETRY = {
       "variant": "full",
       "path": "aircraft/f-35b/engine/F135-PW-600-full.glb",
       "triangles": 24408,
-      "bytes": 1892588,
-      "sha256": "1cd94e8e3c482db4683f534332755143b373187b2162dd855c28bc05b9d6a2a2"
+      "bytes": 1729268,
+      "sha256": "d4c6ed7e9613b7b9fb38f2a2a5d6b72e8bbd2c4cba4370df9db28f507195e09e"
     },
     {
       "variant": "installed",
       "path": "aircraft/f-35b/engine/F135-PW-600-installed.glb",
       "triangles": 12976,
-      "bytes": 1066152,
-      "sha256": "659939a06418c56eb4d7ef40262c53c996face367776e74f10086fe1053ff5e2"
+      "bytes": 902676,
+      "sha256": "c891c520016e335615412d098b282323944fa1d98ea12fc6799fc0a1c6132aad"
     },
     {
       "variant": "airframe",

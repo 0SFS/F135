@@ -16,7 +16,7 @@
     },
     {
       "path": "../F135/scripts/f135Engine/glb.mjs",
-      "sha256": "eadc49f9412d4e733817c65a17de4fb851e0b43c8c6360b7a7f1eccd640fcb2d"
+      "sha256": "07f0730952210cbb77e386fdf47057548f102a5bb0e9ab0128446faeb2a3884f"
     },
     {
       "path": "../F135/scripts/f135Engine/mechanism.mjs",
@@ -145,6 +145,7 @@
       "path": "public/aircraft/f-35b/engine/F135-PW-600-full.glb",
       "triangles": 24408,
       "meshes": 151,
+      "gltfMeshes": 31,
       "standOnlyMeshes": [
         "F135_ExternalCasing",
         "F135_CasingFlanges",
@@ -153,18 +154,19 @@
         "F135_MountsAndDriveHousing"
       ],
       "morphMeshes": [],
-      "bytes": 1892588,
-      "sha256": "1cd94e8e3c482db4683f534332755143b373187b2162dd855c28bc05b9d6a2a2"
+      "bytes": 1729268,
+      "sha256": "d4c6ed7e9613b7b9fb38f2a2a5d6b72e8bbd2c4cba4370df9db28f507195e09e"
     },
     {
       "variant": "installed",
       "path": "public/aircraft/f-35b/engine/F135-PW-600-installed.glb",
       "triangles": 12976,
       "meshes": 146,
+      "gltfMeshes": 26,
       "standOnlyMeshes": [],
       "morphMeshes": [],
-      "bytes": 1066152,
-      "sha256": "659939a06418c56eb4d7ef40262c53c996face367776e74f10086fe1053ff5e2"
+      "bytes": 902676,
+      "sha256": "c891c520016e335615412d098b282323944fa1d98ea12fc6799fc0a1c6132aad"
     },
     {
       "variant": "airframe",

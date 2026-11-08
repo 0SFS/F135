@@ -14,13 +14,20 @@ export function accessor(gltf,index) {
 }
 export function exportEngine(source,variant) {
   const meshes=source.meshes.filter(m=>variant==='full'||!m.standOnly),binary=[],accessors=[],bufferViews=[];let offset=0;
-  const data=values=>{const bytes=Buffer.alloc(values.length*4);values.forEach((v,i)=>bytes.writeFloatLE(v,i*4));const view=bufferViews.length;bufferViews.push({buffer:0,byteOffset:offset,byteLength:bytes.length,target:34962});binary.push(bytes);offset+=bytes.length;const min=[0,1,2].map(c=>Math.min(...values.filter((_,i)=>i%3===c))),max=[0,1,2].map(c=>Math.max(...values.filter((_,i)=>i%3===c)));accessors.push({bufferView:view,componentType:5126,count:values.length/3,type:'VEC3',min,max});return accessors.length-1;};
+  const floats=values=>{const bytes=Buffer.alloc(values.length*4);values.forEach((v,i)=>bytes.writeFloatLE(v,i*4));return bytes;};
+  // Bounds are those of the float32 values as stored, as glTF requires: Babylon bounds a mesh by them, and an instance
+  // by its stored vertices, so the two agree.
+  const data=values=>{const bytes=floats(values);const view=bufferViews.length;bufferViews.push({buffer:0,byteOffset:offset,byteLength:bytes.length,target:34962});binary.push(bytes);offset+=bytes.length;const stored=values.map(Math.fround),min=[0,1,2].map(c=>Math.min(...stored.filter((_,i)=>i%3===c))),max=[0,1,2].map(c=>Math.max(...stored.filter((_,i)=>i%3===c)));accessors.push({bufferView:view,componentType:5126,count:values.length/3,type:'VEC3',min,max});return accessors.length-1;};
   const nodes=source.transforms.map(t=>{const {parent,...n}=t;return {...n,...(n.translation?{translation:[...n.translation]}:{}),children:[]};});
   const nodeMap=new Map(nodes.map((n,i)=>[n.name,i]));
   source.transforms.forEach((t,i)=>{if(t.parent)nodes[nodeMap.get(t.parent)].children.push(i);});
-  const gm=meshes.map((m,i)=>{const primitive={attributes:{POSITION:data(m.positions),NORMAL:data(m.normals)},material:source.materials.findIndex(mat=>mat.name===m.material),mode:4};if(m.openPositions)primitive.targets=[{POSITION:data(m.openPositions.map((v,j)=>v-m.positions[j])),NORMAL:data(m.openNormals.map((v,j)=>v-m.normals[j]))}];nodes[nodeMap.get(m.parent)].children.push(nodes.length);nodes.push({name:m.name,mesh:i,extras:m.extras});return {name:m.name,primitives:[primitive],...(m.openPositions?{weights:[0],extras:{targetNames:['nozzleOpen']}}:{})};});
+  // Parts whose stored vertices and material are identical share one glTF mesh, named after its first part: Babylon's
+  // loader then draws a shared mesh's parts as instances, one draw a pass. The nozzle's 16 segments of each flap differ
+  // only in their parent nodes' poses, so its 128 parts are 8 meshes. A morphing mesh is never shared.
+  const gm=[],shared=new Map();
+  for(const m of meshes){const material=source.materials.findIndex(mat=>mat.name===m.material),key=m.openPositions?null:`${material}|${floats(m.positions).toString('base64')}|${floats(m.normals).toString('base64')}`;let mesh=key===null?undefined:shared.get(key);if(mesh===undefined){const primitive={attributes:{POSITION:data(m.positions),NORMAL:data(m.normals)},material,mode:4};if(m.openPositions)primitive.targets=[{POSITION:data(m.openPositions.map((v,j)=>v-m.positions[j])),NORMAL:data(m.openNormals.map((v,j)=>v-m.normals[j]))}];mesh=gm.length;gm.push({name:m.name,primitives:[primitive],...(m.openPositions?{weights:[0],extras:{targetNames:['nozzleOpen']}}:{})});if(key!==null)shared.set(key,mesh);}nodes[nodeMap.get(m.parent)].children.push(nodes.length);nodes.push({name:m.name,mesh,extras:m.extras});}
   const json={asset:{version:'2.0',generator:'0sfs original F135 source v2',copyright:'Original visual reconstruction, AGPL-3.0-only; no F135 calibration claim'},scene:0,scenes:[{nodes:[0]}],nodes,meshes:gm,materials:source.materials,accessors,bufferViews,buffers:[{byteLength:offset}],extras:{variant,profile:'f135-pw600-rigid-aperture-v2',axes:'+Y up; +Z aft',units:'metres',apertureMechanism:'rigid-cd-flaps-v1',approximation:true}};
-  return {bytes:encodeGlb(json,Buffer.concat(binary)),triangles:meshes.reduce((n,m)=>n+m.positions.length/9,0),meshes:meshes.length,standOnlyMeshes:meshes.filter(m=>m.standOnly).map(m=>m.name),morphMeshes:meshes.filter(m=>m.openPositions).map(m=>m.name)};
+  return {bytes:encodeGlb(json,Buffer.concat(binary)),triangles:meshes.reduce((n,m)=>n+m.positions.length/9,0),meshes:meshes.length,gltfMeshes:gm.length,standOnlyMeshes:meshes.filter(m=>m.standOnly).map(m=>m.name),morphMeshes:meshes.filter(m=>m.openPositions).map(m=>m.name)};
 }
 export function removeOriginalNozzle(bytes,closeout) {
   const {json:original,binary}=decodeGlb(bytes),j=structuredClone(original),removed=new Set(), root=j.nodes.findIndex(n=>n.name==='vtol');

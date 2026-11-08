@@ -5,7 +5,7 @@ import { bindEngineNozzleRig } from '@0sfs/engines/engineNozzleRig';
 import { exportedFrames } from './f135Engine/mechanism.mjs';
 import { readFileSync } from 'node:fs';
 import { buildSource,profile,bearingFrames } from './f135Engine/source.mjs';
-import { exportEngine,removeOriginalNozzle,decodeGlb,posedMeshes } from './f135Engine/glb.mjs';
+import { exportEngine,removeOriginalNozzle,decodeGlb,posedMeshes,accessor } from './f135Engine/glb.mjs';
 import { buildCloseout } from './f135Engine/closeout.mjs';
 const read=path=>readFileSync(new URL(`../../fly/${path}`,import.meta.url));
 describe('original F135 engine source and generated asset boundary',()=>{
@@ -17,7 +17,31 @@ describe('original F135 engine source and generated asset boundary',()=>{
     const fi=decodeGlb(full.bytes),ii=decodeGlb(installed.bytes);expect(ii.json.images??[]).toEqual([]);expect(ii.json.materials).toEqual(fi.json.materials);
     const fullMeshes=new Map(posedMeshes(fi).map(m=>[m.name,m]));
     for(const m of posedMeshes(ii))expect(fullMeshes.get(m.name)).toEqual(m);
+    // The nozzle's 8 rigid part shapes are each one glTF mesh, shared by the shape's 16 segments, which Babylon draws as
+    // instances; every other part has a mesh of its own.
+    expect([full.gltfMeshes,installed.gltfMeshes]).toEqual([full.meshes-120,installed.meshes-120]);
+    expect([full.gltfMeshes,installed.gltfMeshes]).toEqual([fi.json.meshes.length,ii.json.meshes.length]);
+    for(const glb of [fi,ii]){
+      const users=new Map();for(const n of glb.json.nodes)if(n.mesh!==undefined)users.set(n.mesh,[...(users.get(n.mesh)??[]),n.name]);
+      const shared=[...users.values()].filter(names=>names.length>1);
+      expect(users.size).toBe(glb.json.meshes.length);expect(shared).toHaveLength(8);
+      for(const names of shared)expect(names.map(n=>n.replace(/_\d\d_/,'_NN_'))).toEqual(Array(16).fill(names[0].replace(/_\d\d_/,'_NN_')));
+      // Bounds are those of the stored float32 values, as glTF requires (JSON has no -0).
+      glb.json.accessors.forEach((a,i)=>{if(!a.min)return;const values=accessor(glb,i);for(let c=0;c<3;c++){const column=values.filter((_,k)=>k%3===c);expect([a.min[c],a.max[c]]).toEqual([Math.min(...column)+0,Math.max(...column)+0]);}});
+    }
   },60000);
+  it('shares a glTF mesh only between parts with the same stored vertices, normals and material, never a morphing one',()=>{
+    const tri=[0,0,0,1,0,0,0,1,0],up=[0,0,1,0,0,1,0,0,1],part=(name,extra={})=>({name,parent:'root',material:'a',positions:tri,normals:up,...extra});
+    const open={openPositions:tri.map(v=>v*2),openNormals:up};
+    const {bytes,gltfMeshes}=exportEngine({transforms:[{name:'root'}],materials:[{name:'a'},{name:'b'}],meshes:[part('base'),part('same'),
+      part('float32-same',{positions:tri.map(v=>v*(1+1e-12))}),part('other-material',{material:'b'}),part('other-normals',{normals:[0,1,0,0,1,0,0,1,0]}),
+      part('other-vertices',{positions:tri.map(v=>v*3)}),part('morph-1',open),part('morph-2',open)]},'installed');
+    const {json}=decodeGlb(bytes),mesh=Object.fromEntries(json.nodes.filter(n=>n.mesh!==undefined).map(n=>[n.name,n.mesh]));
+    expect(gltfMeshes).toBe(json.meshes.length);
+    expect([mesh.same,mesh['float32-same']]).toEqual([mesh.base,mesh.base]);
+    const own=['base','other-material','other-normals','other-vertices','morph-1','morph-2'].map(n=>mesh[n]);
+    expect(new Set(own).size).toBe(own.length);expect(json.meshes).toHaveLength(own.length);
+  });
   it('removes only old engine nodes and its separately audited extras component, and adds the aft closeout',()=>{
     const original=read('public/aircraft/f-35b/F-35B_AF267.glb'),installed=decodeGlb(read('public/aircraft/f-35b/engine/F135-PW-600-installed.glb'));
     const output=removeOriginalNozzle(original,buildCloseout(decodeGlb(original),installed,profile)),glb=decodeGlb(output.bytes),bare=removeOriginalNozzle(original);
@@ -58,7 +82,9 @@ describe('original F135 engine source and generated asset boundary',()=>{
         const pitch=pitchDeg*Math.PI/180,yaw=yawDeg*Math.PI/180;rig.update(pitch,yaw,aperture);const frames=exportedFrames(gltf,profile,aperture,pitch,yaw);
         for(const part of parts)for(const p of [[0,0,0],[1,0,0],[0,1,0],[0,0,1]]){const actual=Vector3.TransformCoordinates(Vector3.FromArray(p),part.computeWorldMatrix(true)).asArray(),expected=frames[part.name](p).map((v,i)=>v+profile.attachment[i]);maxError=Math.max(maxError,Math.hypot(...actual.map((v,i)=>v-expected[i])));}
       }
-      expect(parts).toHaveLength(112);expect(maxError).toBeLessThan(2e-6);container.dispose();
+      expect(parts).toHaveLength(112);expect(maxError).toBeLessThan(2e-6);
+      expect(container.meshes.filter(m=>m.isAnInstance).map(m=>m.name.replace(/_\d\d_/,'_NN_')).filter((n,i,all)=>all.indexOf(n)===i).sort()).toEqual(['F135_ConvergentSealShoe_NN_Metal','F135_ConvergentSeal_NN_Metal','F135_Convergent_NN_Metal','F135_DivergentSeal_NN_Metal','F135_Divergent_NN_Follower','F135_Divergent_NN_Metal','F135_FairingSeal_NN_Metal','F135_Fairing_NN_Metal']);
+      expect(container.meshes.filter(m=>m.isAnInstance)).toHaveLength(120);container.dispose();
     }finally{scene.dispose();engine.dispose();}
   });
 
